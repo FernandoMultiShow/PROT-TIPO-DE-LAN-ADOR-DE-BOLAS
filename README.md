@@ -10,105 +10,134 @@ VÍDEO QUE COMPÕE A APRESENTAÇÃO DO PROTÓTIPO: https://youtu.be/C9-QMZfs53g
 
 CÓDIGO EM C, PARA A PLACA ESP-32 - IDE ARDUINO:
 
-//exemplo 1: Robô com ajuste de velocidade via PWM
+#include "BluetoothSerial.h" // Inclui a biblioteca para comunicação Bluetooth
 
-//inclusão de bibliotecas:
-#include <BluetoothSerial.h>  //biblioteca de bluetooth do ESP32
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to enable it.
+#endif
 
-//definições nomes para pinos (GPIOs):
-#define IN1 18  //LANÇADOR
-#define IN2 19  //SELETOR
-#define IN3 32  //ARTICULADOR
+BluetoothSerial SerialBT; // Cria um objeto BluetoothSerial
 
-//declaração de instâncias para biblioteca:
-BluetoothSerial bluetooth;
+// Definição dos pinos GPIO para os motores e o LED
+const int PIN_LANCADOR = 18;  // Motor Lançador (GPIO 18)
+const int PIN_SELETOR = 19;   // Motor Seletor (GPIO 19)
+const int PIN_ARTICULADOR = 32; // Motor Articulador (GPIO 32)
+const int PIN_LED_EMBUTIDO = 2; // LED embutido do ESP32 (GPIO 2)
 
-//declaração de variáveis:
-char comando = 'P';         //variável tipo caracter
-int valor_pwm_lanc = 255;   //variável tipo inteira (255 => 100% PWM => 100% de velocidade)
-int valor_pwm_selet = 200;  //variável tipo inteira (255 => 100% PWM => 100% de velocidade)
-int valor_pwm_artic = 180;  //variável tipo inteira (255 => 100% PWM => 100% de velocidade)
+// Configurações de PWM para controle dos motores
+// Canais PWM para o ESP32 (0-15)
+const int canalLancador = 0;
+const int canalSeletor = 1;
+const int canalArticulador = 2;
+
+// Frequência do PWM (Hz)
+const int freqPWM = 5000; // 5 kHz é um bom ponto de partida para motores DC
+// Resolução do PWM (bits). 8 bits = 0-255
+const int resolucaoPWM = 8; // Permite valores de 0 a 255 para a velocidade
+
+void setup() {
+  Serial.begin(9600); // Inicia a comunicação serial para depuração
+  SerialBT.begin("robo_lancador_2"); // Inicia o Bluetooth com o nome "robo_lancador_2"
+  Serial.println("O Bluetooth 'robo_lancador_2' foi iniciado!");
+
+  // Configura os pinos dos motores como saída
+  pinMode(PIN_LANCADOR, OUTPUT);
+  pinMode(PIN_SELETOR, OUTPUT);
+  pinMode(PIN_ARTICULADOR, OUTPUT);
+  pinMode(PIN_LED_EMBUTIDO, OUTPUT); // Configura o pino do LED como saída
+
+  // Configura os canais PWM
+  // ledcSetup(canal, freq, resolucao)
+  ledcSetup(canalLancador, freqPWM, resolucaoPWM);
+  ledcSetup(canalSeletor, freqPWM, resolucaoPWM);
+  ledcSetup(canalArticulador, freqPWM, resolucaoPWM);
+
+  // Atribui os canais PWM aos pinos dos motores
+  // ledcAttachPin(pino, canal)
+  ledcAttachPin(PIN_LANCADOR, canalLancador);
+  ledcAttachPin(PIN_SELETOR, canalSeletor);
+  ledcAttachPin(PIN_ARTICULADOR, canalArticulador);
+
+  // Define o status inicial dos motores como LOW (desligados)
+  ledcWrite(canalLancador, 0);   // Velocidade 0 para o lançador
+  ledcWrite(canalSeletor, 0);    // Velocidade 0 para o seletor
+  ledcWrite(canalArticulador, 0); // Velocidade 0 para o articulador
+}
+
+void loop() {
+  // Verifica se há dados disponíveis via Bluetooth
+  if (SerialBT.available()) {
+    String comandoCompleto = SerialBT.readStringUntil('\n'); // Lê o comando completo até a quebra de linha
+    comandoCompleto.trim(); // Remove espaços em branco no início/fim
+
+    Serial.print("Comando Recebido: ");
+    Serial.println(comandoCompleto); // Imprime o comando completo na serial
+
+    // Faz o LED embutido piscar
+    digitalWrite(PIN_LED_EMBUTIDO, HIGH); // Liga o LED
+    delay(50); // Mantém ligado por 50ms
+    digitalWrite(PIN_LED_EMBUTIDO, LOW);  // Desliga o LED
+    delay(50); // Mantém desligado por 50ms (para um piscar rápido)
+
+    // Extrai o caractere de comando (primeira letra)
+    char tipoComando = comandoCompleto.charAt(0);
+
+    // Extrai o valor da velocidade (o restante da string)
+    int velocidade = comandoCompleto.substring(1).toInt();
+
+    // Garante que a velocidade esteja dentro da faixa de 0 a 255
+    velocidade = constrain(velocidade, 0, 255);
+
+    // Processa o comando
+    switch (tipoComando) {
+      case 'F': // Lançador (F de "Forward" ou Lançador - como você usa "lancador")
+        Serial.print("Controlando Lançador com velocidade: ");
+        Serial.println(velocidade);
+        ledcWrite(canalLancador, velocidade); // Define a velocidade do lançador
+        break;
+
+      case 'E': // Seletor
+        Serial.print("Controlando Seletor com velocidade: ");
+        Serial.println(velocidade);
+        ledcWrite(canalSeletor, velocidade); // Define a velocidade do seletor
+        break;
+
+      case 'D': // Articulador
+        Serial.print("Controlando Articulador com velocidade: ");
+        Serial.println(velocidade);
+        ledcWrite(canalArticulador, velocidade); // Define a velocidade do articulador
+        break;
+
+      // Comandos para DESLIGAR os motores (botões separados)
+      case 'X': // Desligar Lançador (usando 'f' minúsculo para diferenciar)
+        Serial.println("Desligando Lançador.");
+        ledcWrite(canalLancador, 0); // Define a velocidade do lançador para 0
+        break;
+
+      case 'Y': // Desligar Seletor
+        Serial.println("Desligando Seletor.");
+        ledcWrite(canalSeletor, 0); // Define a velocidade do seletor para 0
+        break;
+
+      case 'Z': // Desligar Articulador
+        Serial.println("Desligando Articulador.");
+        ledcWrite(canalArticulador, 0); // Define a velocidade do articulador para 0
+        break;
+
+      case 'P': // Desligar Todo o Sistema
+        Serial.println("Desligando Todo o Sistema.");
+        ledcWrite(canalLancador, 0); // Define a velocidade do articulador para 0
+        ledcWrite(canalSeletor, 0); // Define a velocidade do articulador para 0
+        ledcWrite(canalArticulador, 0); // Define a velocidade do articulador para 0
+        break;
 
 
-void setup() {  //função de inicialização (configurações)
-  //Configuração das GPIOS como saída digital:
-
-  // pinMode(IN1,OUTPUT);
-  pinMode(IN1, OUTPUT);  //LANÇADOR
-  pinMode(IN2, OUTPUT);  //SELETOR
-  pinMode(IN3, OUTPUT);  //ARTICULADOR
-
-
-  //Configurações de PWM para o ESP32:
-  ledcAttachPin(IN1, 0);  //canal 0 PWM em IN1 (GPIO 18)
-  ledcSetup(0, 500, 8);   //(CANAL,FREQ PWM, No. BITS PWM) => Canal 0 com 500HZ e 8 bits
-
-  ledcAttachPin(IN2, 1);  //canal 1 PWM em IN2 (GPIO 19)
-  ledcSetup(1, 500, 8);   //(CANAL,FREQ PWM, No. BITS PWM) => Canal 1 com 500HZ e 8 bits
-
-  ledcAttachPin(IN3, 2);  //canal 2 PWM em IN3 (GPIO 32)
-  ledcSetup(2, 500, 8);   //(CANAL,FREQ PWM, No. BITS PWM) => Canal 2 com 500HZ e 8 bits
-
-
-
-  //Configuração de bluetooth:
-  bluetooth.begin("LANÇADOR");  //inicializa servidor bluetooth com nome "LANÇADOR"
-
-}  //fim setup
-
-void loop() {  //função de laço infinito (processamento)
-
-  //se algum caracter disponível via bluetooth => comando = caracter lido
-  if (bluetooth.available() > 0) comando = bluetooth.read();
-
-  if (comando == 'P') parar();        //se comando igual ao caracter zero executa função de usário chamada "parar"
-  if (comando == 'F') lancador();     //se comando igual ao caracter um executa função de usário chamada "lancador"
-  if (comando == 'E') seletor();      //se comando igual ao caracter cinco executa função de usário chamada "seletor"
-  if (comando == 'D') articulador();  //se comando igual ao caracter três executa função de usário chamada "articulador"
-
-  if (comando == 'X') lancador2();     // parar motor lancador
-  if (comando == 'Y') seletor2();      // parar motor seletor
-  if (comando == 'Z') articulador2();  // parar motor articulador
-}  //fim loop
-
-//Funções de usuário:
-void parar() {
-  //Parar todos os Motores
-  ledcWrite(0, 0);
-  ledcWrite(1, 0);
-  ledcWrite(2, 0);
-}  //fim parar
-
-
-void lancador() {
-  //PMW com valor_pwm => (valor_pwm=127 => vel 50%  ; valor_pwm=255 => vel 100%)
-  ledcWrite(0, valor_pwm_lanc);  //(CANAL PWM, VALOR PWM) => canal 2 com valor_pwm de PWM
-}  //fim parado
-
-void lancador2() {  //Parar o Motor Lançador
-  ledcWrite(0, 0);  //(CANAL PWM, VALOR PWM) => canal 0 com 0 de PWM
-}  //fim lançador2
-
-
-void seletor() {
-  //PMW com valor_pwm => (valor_pwm=127 => vel 50%  ; valor_pwm=255 => vel 100%)
-  ledcWrite(1, valor_pwm_selet);  //(CANAL PWM, VALOR PWM) => canal 0 com valor_pwm de PWM
-}  //fim parado
-
-void seletor2() {   //Parar o Motor Lançador
-  ledcWrite(1, 0);  //(CANAL PWM, VALOR PWM) => canal 0 com 0 de PWM
-}  //fim seletor2
-
-
-void articulador() {
-  //PMW com valor_pwm => (valor_pwm=127 => vel 50%  ; valor_pwm=255 => vel 100%)
-  ledcWrite(2, valor_pwm_artic);  //(CANAL PWM, VALOR PWM) => canal 0 com valor_pwm de PWM
-}  //fim parado
-
-void articulador2() {  //Parar o Motor Lançador
-  ledcWrite(2, 0);     //(CANAL PWM, VALOR PWM) => canal 0 com 0 de PWM
-}  //fim articulador2
-
+      default:
+        Serial.println("Comando inválido!");
+        break;
+    }
+  }
+}
 
 ##########################################################################################################################
 
